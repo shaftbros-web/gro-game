@@ -11,12 +11,14 @@
         #title button { padding: 10px 20px; font-size: 20px; }
         .slider { width: 80%; margin: 10px; }
         .label { font-size: 18px; }
+        #guide { position: absolute; top: 10px; left: 10px; color: white; font-size: 16px; background: rgba(0,0,0,0.5); padding: 10px; }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
     <div id="title">
         <h1>拡張アクション: Grok Wars</h1>
+        <p>操作: 左半分をドラッグで移動、右半分をドラッグで回転・攻撃</p>
         <div>
             <label class="label">難易度: <input type="range" id="difficulty" min="1" max="5" value="3" class="slider"><span id="diffVal">3</span></label>
         </div>
@@ -47,8 +49,12 @@
         <div>
             <label class="label">スコア倍率: <input type="range" id="scoreMul" min="1" max="3" value="1" class="slider"><span id="scoreVal">1</span></label>
         </div>
+        <div>
+            <label class="label">ジョイスティック感度: <input type="range" id="joySens" min="0.5" max="2" step="0.1" value="1" class="slider"><span id="joyVal">1</span></label>
+        </div>
         <button onclick="startGame()">スタート</button>
     </div>
+    <div id="guide" style="display: none;">左:移動 / 右:回転・攻撃</div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -75,13 +81,14 @@
             document.getElementById('atkVal').textContent = document.getElementById('attackPower').value;
             document.getElementById('volVal').textContent = document.getElementById('bgmVol').value;
             document.getElementById('scoreVal').textContent = document.getElementById('scoreMul').value;
+            document.getElementById('joyVal').textContent = document.getElementById('joySens').value;
         }
         updateSliderLabels();
-        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'rotSpeed', 'attackPower', 'bgmVol', 'scoreMul'].forEach(id => {
+        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'rotSpeed', 'attackPower', 'bgmVol', 'scoreMul', 'joySens'].forEach(id => {
             document.getElementById(id).addEventListener('input', updateSliderLabels);
         });
 
-        // BGM (シンプルな音生成)
+        // BGM
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playBGM(vol) {
             const oscillator = audioCtx.createOscillator();
@@ -98,8 +105,9 @@
 
         // ゲーム変数
         let player, enemies = [], items = [], score = 0, gameOver = false, cleared = false;
-        let touchMove = {x: 0, y: 0}, touchRot = {x: 0, y: 0};
-        let wave = 0; // 0:ザコ, 1:中ボス, 2:大ボス
+        let moveTouch = { id: null, x: 0, y: 0, active: false };
+        let rotTouch = { id: null, x: 0, y: 0, active: false };
+        let wave = 0;
 
         class Entity {
             constructor(x, y, size, color, dur) {
@@ -120,21 +128,20 @@
             constructor() {
                 super(width/2, height/2, 30, 'blue', params.initialLife * 10);
                 this.angle = 0; this.speed = params.playerSpeed; this.rotSpeed = params.rotSpeed * Math.PI / 180;
-                this.extensions = []; // 接続アイテム
-                this.attack = params.attackPower;
+                this.extensions = []; this.attack = params.attackPower;
             }
             update() {
                 // 移動
-                const dx = touchMove.x - width/4, dy = touchMove.y - height/2;
+                const dx = moveTouch.x - width/4, dy = moveTouch.y - (height-150);
                 const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist > 50) {
-                    this.x += (dx / dist) * this.speed;
-                    this.y += (dy / dist) * this.speed;
+                if (moveTouch.active && dist > 20) {
+                    this.x += (dx / dist) * this.speed * params.joySens;
+                    this.y += (dy / dist) * this.speed * params.joySens;
                 }
                 // 回転
-                const rx = touchRot.x - (width * 3/4), ry = touchRot.y - height/2;
+                const rx = rotTouch.x - (width * 3/4), ry = rotTouch.y - (height-150);
                 const rdist = Math.sqrt(rx*rx + ry*ry);
-                if (rdist > 50) {
+                if (rotTouch.active && rdist > 20) {
                     this.angle += (Math.atan2(ry, rx) - this.angle) * 0.1 * this.rotSpeed;
                 }
                 this.x = Math.max(0, Math.min(width, this.x));
@@ -146,7 +153,6 @@
                 ctx.rotate(this.angle);
                 ctx.fillStyle = this.color;
                 ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
-                // 拡張描画
                 let extX = this.size/2;
                 this.extensions.forEach(ext => {
                     ctx.fillStyle = ext.color;
@@ -160,19 +166,20 @@
                 const frontY = this.y + Math.sin(this.angle) * (this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0));
                 enemies.forEach(e => {
                     const dist = Math.hypot(e.x - frontX, e.y - frontY);
-                    if (dist < (e.size + this.size)/2) {
+                    if (dist < (e.size + this.size)/2 && rotTouch.active) {
                         e.dur -= this.attack + this.extensions.length;
                         e.updateScale();
                         if (e.dur <= 0) {
                             enemies.splice(enemies.indexOf(e), 1);
                             score += 10 * params.scoreMul * (e.isBoss ? 10 : 1);
+                            if ('vibrate' in navigator) navigator.vibrate(50); // 振動
                         }
                     }
                 });
             }
             connectItem(item) {
                 this.extensions.push(item);
-                this.attack += 1; // 拡張で攻撃アップ
+                this.attack += 1;
             }
         }
 
@@ -186,7 +193,6 @@
                 const dist = Math.hypot(dx, dy);
                 this.x += (dx / dist) * this.speed;
                 this.y += (dy / dist) * this.speed;
-                // 衝突でダメージ
                 if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2) {
                     player.dur -= 5;
                     player.updateScale();
@@ -201,7 +207,7 @@
             }
             update() {
                 if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2 && 
-                    Math.abs(this.angle - player.angle) < Math.PI/4) { // 正面チェック
+                    Math.abs(Math.atan2(this.y - player.y, this.x - player.x) - player.angle) < Math.PI/4) {
                     player.connectItem(this);
                     items.splice(items.indexOf(this), 1);
                 }
@@ -216,9 +222,9 @@
             else if (side === 2) { x = -50; y = Math.random()*height; }
             else { x = width+50; y = Math.random()*height; }
             let type = Math.floor(Math.random()*3), size=30, dur=20, speed=2, color;
-            if (type===0) { color='orange'; speed=3; dur=10; } // 速いザコ
-            else if (type===1) { color='purple'; dur=30; speed=1; } // 耐久ザコ
-            else { color='pink'; dur=15; speed=2; } // 標準
+            if (type===0) { color='orange'; speed=3; dur=10; }
+            else if (type===1) { color='purple'; dur=30; speed=1; }
+            else { color='pink'; dur=15; speed=2; }
             enemies.push(new Enemy(x, y, size, color, dur, speed, type));
         }
 
@@ -235,6 +241,39 @@
             items.push(new Item(x, y));
         }
 
+        function drawController() {
+            // 移動ジョイスティック
+            ctx.save();
+            ctx.translate(width/4, height-150);
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI*2); ctx.fill();
+            if (moveTouch.active) {
+                const dx = moveTouch.x - width/4, dy = moveTouch.y - (height-150);
+                const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy));
+                const angle = Math.atan2(dy, dx);
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(Math.cos(angle)*dist, Math.sin(angle)*dist, 20, 0, Math.PI*2);
+                ctx.fill();
+            }
+            ctx.restore();
+            // 回転スライダー
+            ctx.save();
+            ctx.translate(width*3/4, height-150);
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI*2); ctx.fill();
+            if (rotTouch.active) {
+                const rx = rotTouch.x - (width*3/4), ry = rotTouch.y - (height-150);
+                const dist = Math.min(50, Math.sqrt(rx*rx + ry*ry));
+                const angle = Math.atan2(ry, rx);
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(Math.cos(angle)*dist, Math.sin(angle)*dist, 20, 0, Math.PI*2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
         function startGame() {
             params = {
                 difficulty: +document.getElementById('difficulty').value,
@@ -246,9 +285,11 @@
                 rotSpeed: +document.getElementById('rotSpeed').value,
                 attackPower: +document.getElementById('attackPower').value,
                 bgmVol: +document.getElementById('bgmVol').value,
-                scoreMul: +document.getElementById('scoreMul').value
+                scoreMul: +document.getElementById('scoreMul').value,
+                joySens: +document.getElementById('joySens').value
             };
             document.getElementById('title').style.display = 'none';
+            document.getElementById('guide').style.display = 'block';
             player = new Player();
             bgm = playBGM(params.bgmVol);
             gameLoop();
@@ -269,18 +310,18 @@
             lastTime = time;
 
             ctx.clearRect(0, 0, width, height);
-            // 背景
             ctx.fillStyle = 'rgba(0,0,50,0.5)';
             ctx.fillRect(0,0,width,height);
 
             player.update();
             player.draw();
-            player.attackEnemies(); // 常時攻撃チェック
+            player.attackEnemies();
 
             enemies.forEach(e => { e.update(); e.draw(); });
             items.forEach(i => { i.update(); i.draw(); });
 
-            // ウェーブ管理
+            drawController();
+
             if (wave === 0 && enemies.length < params.enemySpawn) spawnEnemy();
             if (wave === 0 && enemies.length === 0 && Math.random() < 0.01 * params.difficulty) {
                 wave = 1; spawnMidBoss();
@@ -290,10 +331,8 @@
             }
             if (wave === 2 && enemies.length === 0) cleared = true;
 
-            // アイテムランダム湧き
             if (Math.random() < 0.005) spawnItem();
 
-            // UI
             ctx.fillStyle = 'white';
             ctx.font = '20px Arial';
             ctx.fillText(`Life: ${Math.ceil(player.dur/10)}`, 10, 30);
@@ -305,21 +344,55 @@
             e.preventDefault();
             const touches = e.changedTouches;
             for (let t of touches) {
-                if (t.clientX < width/2) touchMove = {x: t.clientX, y: t.clientY};
-                else touchRot = {x: t.clientX, y: t.clientY};
+                if (t.clientX < width/2 && !moveTouch.active) {
+                    moveTouch = { id: t.identifier, x: t.clientX, y: t.clientY, active: true };
+                } else if (t.clientX >= width/2 && !rotTouch.active) {
+                    rotTouch = { id: t.identifier, x: t.clientX, y: t.clientY, active: true };
+                }
             }
         });
         canvas.addEventListener('touchmove', e => {
             e.preventDefault();
             const touches = e.changedTouches;
             for (let t of touches) {
-                if (t.clientX < width/2) touchMove = {x: t.clientX, y: t.clientY};
-                else touchRot = {x: t.clientX, y: t.clientY};
+                if (t.identifier === moveTouch.id) {
+                    moveTouch.x = t.clientX;
+                    moveTouch.y = t.clientY;
+                } else if (t.identifier === rotTouch.id) {
+                    rotTouch.x = t.clientX;
+                    rotTouch.y = t.clientY;
+                }
             }
         });
         canvas.addEventListener('touchend', e => {
-            touchMove = {x: 0, y: 0};
-            touchRot = {x: 0, y: 0};
+            e.preventDefault();
+            const touches = e.changedTouches;
+            for (let t of touches) {
+                if (t.identifier === moveTouch.id) moveTouch = { id: null, x: 0, y: 0, active: false };
+                if (t.identifier === rotTouch.id) rotTouch = { id: null, x: 0, y: 0, active: false };
+            }
+        });
+
+        // マウス対応（デバッグ用）
+        let mouseMove = false, mouseRot = false;
+        canvas.addEventListener('mousedown', e => {
+            if (e.clientX < width/2) {
+                moveTouch = { x: e.clientX, y: e.clientY, active: true };
+                mouseMove = true;
+            } else {
+                rotTouch = { x: e.clientX, y: e.clientY, active: true };
+                mouseRot = true;
+            }
+        });
+        canvas.addEventListener('mousemove', e => {
+            if (mouseMove) moveTouch = { x: e.clientX, y: e.clientY, active: true };
+            if (mouseRot) rotTouch = { x: e.clientX, y: e.clientY, active: true };
+        });
+        canvas.addEventListener('mouseup', () => {
+            moveTouch = { x: 0, y: 0, active: false };
+            rotTouch = { x: 0, y: 0, active: false };
+            mouseMove = false;
+            mouseRot = false;
         });
     </script>
 </body>
