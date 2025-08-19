@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>拡張アクション: Grok Wars</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: black; }
+        canvas { display: block; }
+        #title { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); color: white; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
+        #title button { padding: 10px 20px; font-size: 20px; }
+        .slider { width: 80%; margin: 10px; }
+        .label { font-size: 18px; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="title">
+        <h1>拡張アクション: Grok Wars</h1>
+        <div>
+            <label class="label">難易度: <input type="range" id="difficulty" min="1" max="5" value="3" class="slider"><span id="diffVal">3</span></label>
+        </div>
+        <div>
+            <label class="label">プレイヤースピード: <input type="range" id="playerSpeed" min="1" max="10" value="5" class="slider"><span id="speedVal">5</span></label>
+        </div>
+        <div>
+            <label class="label">初期ライフ: <input type="range" id="initialLife" min="3" max="10" value="5" class="slider"><span id="lifeVal">5</span></label>
+        </div>
+        <div>
+            <label class="label">敵出現数: <input type="range" id="enemySpawn" min="5" max="20" value="10" class="slider"><span id="spawnVal">10</span></label>
+        </div>
+        <div>
+            <label class="label">アイテム耐久: <input type="range" id="itemDur" min="10" max="50" value="20" class="slider"><span id="itemDurVal">20</span></label>
+        </div>
+        <div>
+            <label class="label">敵耐久倍率: <input type="range" id="enemyDurMul" min="0.5" max="2" step="0.1" value="1" class="slider"><span id="enemyDurVal">1</span></label>
+        </div>
+        <div>
+            <label class="label">回転速度: <input type="range" id="rotSpeed" min="1" max="10" value="5" class="slider"><span id="rotVal">5</span></label>
+        </div>
+        <div>
+            <label class="label">攻撃力: <input type="range" id="attackPower" min="1" max="5" value="2" class="slider"><span id="atkVal">2</span></label>
+        </div>
+        <div>
+            <label class="label">BGMボリューム: <input type="range" id="bgmVol" min="0" max="1" step="0.1" value="0.5" class="slider"><span id="volVal">0.5</span></label>
+        </div>
+        <div>
+            <label class="label">スコア倍率: <input type="range" id="scoreMul" min="1" max="3" value="1" class="slider"><span id="scoreVal">1</span></label>
+        </div>
+        <button onclick="startGame()">スタート</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // パラメーター変数
+        let params = {};
+        function updateSliderLabels() {
+            document.getElementById('diffVal').textContent = document.getElementById('difficulty').value;
+            document.getElementById('speedVal').textContent = document.getElementById('playerSpeed').value;
+            document.getElementById('lifeVal').textContent = document.getElementById('initialLife').value;
+            document.getElementById('spawnVal').textContent = document.getElementById('enemySpawn').value;
+            document.getElementById('itemDurVal').textContent = document.getElementById('itemDur').value;
+            document.getElementById('enemyDurVal').textContent = document.getElementById('enemyDurMul').value;
+            document.getElementById('rotVal').textContent = document.getElementById('rotSpeed').value;
+            document.getElementById('atkVal').textContent = document.getElementById('attackPower').value;
+            document.getElementById('volVal').textContent = document.getElementById('bgmVol').value;
+            document.getElementById('scoreVal').textContent = document.getElementById('scoreMul').value;
+        }
+        updateSliderLabels();
+        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'rotSpeed', 'attackPower', 'bgmVol', 'scoreMul'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateSliderLabels);
+        });
+
+        // BGM (シンプルな音生成)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playBGM(vol) {
+            const oscillator = audioCtx.createOscillator();
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = vol;
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            return oscillator;
+        }
+        let bgm;
+
+        // ゲーム変数
+        let player, enemies = [], items = [], score = 0, gameOver = false, cleared = false;
+        let touchMove = {x: 0, y: 0}, touchRot = {x: 0, y: 0};
+        let wave = 0; // 0:ザコ, 1:中ボス, 2:大ボス
+
+        class Entity {
+            constructor(x, y, size, color, dur) {
+                this.x = x; this.y = y; this.size = size; this.color = color; this.dur = dur; this.maxDur = dur; this.scale = 1;
+            }
+            updateScale() { this.scale = this.dur / this.maxDur; }
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.scale(this.scale, this.scale);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+        class Player extends Entity {
+            constructor() {
+                super(width/2, height/2, 30, 'blue', params.initialLife * 10);
+                this.angle = 0; this.speed = params.playerSpeed; this.rotSpeed = params.rotSpeed * Math.PI / 180;
+                this.extensions = []; // 接続アイテム
+                this.attack = params.attackPower;
+            }
+            update() {
+                // 移動
+                const dx = touchMove.x - width/4, dy = touchMove.y - height/2;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > 50) {
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+                }
+                // 回転
+                const rx = touchRot.x - (width * 3/4), ry = touchRot.y - height/2;
+                const rdist = Math.sqrt(rx*rx + ry*ry);
+                if (rdist > 50) {
+                    this.angle += (Math.atan2(ry, rx) - this.angle) * 0.1 * this.rotSpeed;
+                }
+                this.x = Math.max(0, Math.min(width, this.x));
+                this.y = Math.max(0, Math.min(height, this.y));
+            }
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                // 拡張描画
+                let extX = this.size/2;
+                this.extensions.forEach(ext => {
+                    ctx.fillStyle = ext.color;
+                    ctx.fillRect(extX, -ext.size/2, ext.size, ext.size);
+                    extX += ext.size;
+                });
+                ctx.restore();
+            }
+            attackEnemies() {
+                const frontX = this.x + Math.cos(this.angle) * (this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0));
+                const frontY = this.y + Math.sin(this.angle) * (this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0));
+                enemies.forEach(e => {
+                    const dist = Math.hypot(e.x - frontX, e.y - frontY);
+                    if (dist < (e.size + this.size)/2) {
+                        e.dur -= this.attack + this.extensions.length;
+                        e.updateScale();
+                        if (e.dur <= 0) {
+                            enemies.splice(enemies.indexOf(e), 1);
+                            score += 10 * params.scoreMul * (e.isBoss ? 10 : 1);
+                        }
+                    }
+                });
+            }
+            connectItem(item) {
+                this.extensions.push(item);
+                this.attack += 1; // 拡張で攻撃アップ
+            }
+        }
+
+        class Enemy extends Entity {
+            constructor(x, y, size, color, dur, speed, type, isBoss = false) {
+                super(x, y, size, color, dur * params.enemyDurMul);
+                this.speed = speed; this.type = type; this.isBoss = isBoss;
+            }
+            update() {
+                const dx = player.x - this.x, dy = player.y - this.y;
+                const dist = Math.hypot(dx, dy);
+                this.x += (dx / dist) * this.speed;
+                this.y += (dy / dist) * this.speed;
+                // 衝突でダメージ
+                if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2) {
+                    player.dur -= 5;
+                    player.updateScale();
+                    if (player.dur <= 0) gameOver = true;
+                }
+            }
+        }
+
+        class Item extends Entity {
+            constructor(x, y) {
+                super(x, y, 20, ['red', 'green', 'yellow'][Math.floor(Math.random()*3)], params.itemDur);
+            }
+            update() {
+                if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2 && 
+                    Math.abs(this.angle - player.angle) < Math.PI/4) { // 正面チェック
+                    player.connectItem(this);
+                    items.splice(items.indexOf(this), 1);
+                }
+            }
+        }
+
+        function spawnEnemy() {
+            const side = Math.random() * 4 | 0;
+            let x, y;
+            if (side === 0) { x = Math.random()*width; y = -50; }
+            else if (side === 1) { x = Math.random()*width; y = height+50; }
+            else if (side === 2) { x = -50; y = Math.random()*height; }
+            else { x = width+50; y = Math.random()*height; }
+            let type = Math.floor(Math.random()*3), size=30, dur=20, speed=2, color;
+            if (type===0) { color='orange'; speed=3; dur=10; } // 速いザコ
+            else if (type===1) { color='purple'; dur=30; speed=1; } // 耐久ザコ
+            else { color='pink'; dur=15; speed=2; } // 標準
+            enemies.push(new Enemy(x, y, size, color, dur, speed, type));
+        }
+
+        function spawnMidBoss() {
+            enemies.push(new Enemy(width/2, -100, 50, 'darkred', 50, 1.5, 0, true));
+        }
+
+        function spawnBoss() {
+            enemies.push(new Enemy(width/2, -200, 80, 'black', 100, 1, 0, true));
+        }
+
+        function spawnItem() {
+            const x = Math.random()*width, y = Math.random()*height;
+            items.push(new Item(x, y));
+        }
+
+        function startGame() {
+            params = {
+                difficulty: +document.getElementById('difficulty').value,
+                playerSpeed: +document.getElementById('playerSpeed').value,
+                initialLife: +document.getElementById('initialLife').value,
+                enemySpawn: +document.getElementById('enemySpawn').value,
+                itemDur: +document.getElementById('itemDur').value,
+                enemyDurMul: +document.getElementById('enemyDurMul').value,
+                rotSpeed: +document.getElementById('rotSpeed').value,
+                attackPower: +document.getElementById('attackPower').value,
+                bgmVol: +document.getElementById('bgmVol').value,
+                scoreMul: +document.getElementById('scoreMul').value
+            };
+            document.getElementById('title').style.display = 'none';
+            player = new Player();
+            bgm = playBGM(params.bgmVol);
+            gameLoop();
+        }
+
+        let lastTime = 0;
+        function gameLoop(time) {
+            if (gameOver || cleared) {
+                bgm.stop();
+                ctx.fillStyle = 'white';
+                ctx.font = '40px Arial';
+                ctx.fillText(gameOver ? 'Game Over' : 'Clear!', width/2 - 100, height/2);
+                ctx.fillText(`Score: ${score}`, width/2 - 100, height/2 + 50);
+                return;
+            }
+            requestAnimationFrame(gameLoop);
+            const dt = (time - lastTime) / 1000;
+            lastTime = time;
+
+            ctx.clearRect(0, 0, width, height);
+            // 背景
+            ctx.fillStyle = 'rgba(0,0,50,0.5)';
+            ctx.fillRect(0,0,width,height);
+
+            player.update();
+            player.draw();
+            player.attackEnemies(); // 常時攻撃チェック
+
+            enemies.forEach(e => { e.update(); e.draw(); });
+            items.forEach(i => { i.update(); i.draw(); });
+
+            // ウェーブ管理
+            if (wave === 0 && enemies.length < params.enemySpawn) spawnEnemy();
+            if (wave === 0 && enemies.length === 0 && Math.random() < 0.01 * params.difficulty) {
+                wave = 1; spawnMidBoss();
+            }
+            if (wave === 1 && enemies.length === 0) {
+                wave = 2; spawnBoss();
+            }
+            if (wave === 2 && enemies.length === 0) cleared = true;
+
+            // アイテムランダム湧き
+            if (Math.random() < 0.005) spawnItem();
+
+            // UI
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.fillText(`Life: ${Math.ceil(player.dur/10)}`, 10, 30);
+            ctx.fillText(`Score: ${score}`, 10, 60);
+        }
+
+        // タッチコントロール
+        canvas.addEventListener('touchstart', e => {
+            e.preventDefault();
+            const touches = e.changedTouches;
+            for (let t of touches) {
+                if (t.clientX < width/2) touchMove = {x: t.clientX, y: t.clientY};
+                else touchRot = {x: t.clientX, y: t.clientY};
+            }
+        });
+        canvas.addEventListener('touchmove', e => {
+            e.preventDefault();
+            const touches = e.changedTouches;
+            for (let t of touches) {
+                if (t.clientX < width/2) touchMove = {x: t.clientX, y: t.clientY};
+                else touchRot = {x: t.clientX, y: t.clientY};
+            }
+        });
+        canvas.addEventListener('touchend', e => {
+            touchMove = {x: 0, y: 0};
+            touchRot = {x: 0, y: 0};
+        });
+    </script>
+</body>
+</html>
