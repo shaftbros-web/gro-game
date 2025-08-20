@@ -256,19 +256,20 @@
                 ctx.restore();
             }
             attackEnemies() {
-                const frontX = this.x + Math.cos(this.angle) * (this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0));
-                const frontY = this.y + Math.sin(this.angle) * (this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0));
+                // プレイヤー本体の攻撃判定
+                const baseX = this.x + Math.cos(this.angle) * (this.size/2);
+                const baseY = this.y + Math.sin(this.angle) * (this.size/2);
                 enemies.forEach(e => {
-                    const dist = Math.hypot(e.x - frontX, e.y - frontY);
+                    const dist = Math.hypot(e.x - baseX, e.y - baseY);
                     if (dist < (e.size + this.size)/2) {
-                        e.dur -= this.attack + this.extensions.length;
+                        e.dur -= this.attack;
                         e.updateScale();
-                        const kbDist = (e.isBoss ? 10 : 20) * params.knockbackMul; // 強化 & スライダー適用
-                        const kbDx = (e.x - this.x) / dist * kbDist;
-                        const kbDy = (e.y - this.y) / dist * kbDist;
+                        const kbDist = (e.isBoss ? 10 : 20) * params.knockbackMul;
+                        const kbDx = (e.x - baseX) / dist * kbDist;
+                        const kbDy = (e.y - baseY) / dist * kbDist;
                         e.x += kbDx;
                         e.y += kbDy;
-                        console.log('Knockback applied to enemy');
+                        console.log('Knockback applied to enemy from player');
                         if (e.dur <= 0) {
                             enemies.splice(enemies.indexOf(e), 1);
                             score += 10 * params.scoreMul * (e.isBoss ? 10 : 1);
@@ -276,10 +277,37 @@
                         }
                     }
                 });
+
+                // 拡張部全体の攻撃判定
+                let extX = this.size/2;
+                this.extensions.forEach(ext => {
+                    const extCenterX = this.x + Math.cos(this.angle) * extX + Math.cos(this.angle + Math.PI/2) * (ext.size/2);
+                    const extCenterY = this.y + Math.sin(this.angle) * extX + Math.sin(this.angle + Math.PI/2) * (ext.size/2);
+                    enemies.forEach(e => {
+                        const dist = Math.hypot(e.x - extCenterX, e.y - extCenterY);
+                        if (dist < (e.size + ext.size)/2) {
+                            const damage = this.attack / (this.extensions.length + 1); // 攻撃力を拡張部数で均等分配
+                            e.dur -= damage;
+                            e.updateScale();
+                            const kbDist = (e.isBoss ? 10 : 20) * params.knockbackMul;
+                            const kbDx = (e.x - extCenterX) / dist * kbDist;
+                            const kbDy = (e.y - extCenterY) / dist * kbDist;
+                            e.x += kbDx;
+                            e.y += kbDy;
+                            console.log('Knockback applied to enemy from extension');
+                            if (e.dur <= 0) {
+                                enemies.splice(enemies.indexOf(e), 1);
+                                score += 10 * params.scoreMul * (e.isBoss ? 10 : 1);
+                                if ('vibrate' in navigator) navigator.vibrate(50);
+                            }
+                        }
+                    });
+                    extX += ext.size;
+                });
             }
             connectItem(item) {
                 this.extensions.push(item);
-                this.attack += 1;
+                this.attack += 1; // 拡張ごとに攻撃力増加
                 playItemSound();
                 if ('vibrate' in navigator) navigator.vibrate(100);
             }
@@ -303,23 +331,21 @@
                 }
                 this.x += moveX;
                 this.y += moveY;
-                // 本体にぶつかった時のノックバック (衝突ダメージ時)
                 if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2) {
                     player.dur -= 5;
                     player.updateScale();
                     if (player.dur <= 0) gameOver = true;
-                    const kbDist = (this.isBoss ? 10 : 20) * params.knockbackMul; // 強化
+                    const kbDist = (this.isBoss ? 10 : 20) * params.knockbackMul;
                     const kbDx = (this.x - player.x) / dist * kbDist;
                     const kbDy = (this.y - player.y) / dist * kbDist;
                     this.x += kbDx;
                     this.y += kbDy;
                     console.log('Enemy knocked back on player collision');
                 }
-                // アイテムにぶつかった時のノックバック
                 items.forEach(i => {
                     const iDist = Math.hypot(this.x - i.x, this.y - i.y);
                     if (iDist < (this.size + i.size)/2) {
-                        const kbDist = (this.isBoss ? 10 : 20) * params.knockbackMul; // 強化
+                        const kbDist = (this.isBoss ? 10 : 20) * params.knockbackMul;
                         const kbDx = (this.x - i.x) / iDist * kbDist;
                         const kbDy = (this.y - i.y) / iDist * kbDist;
                         this.x += kbDx;
