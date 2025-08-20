@@ -36,7 +36,7 @@
     <canvas id="gameCanvas"></canvas>
     <div id="title">
         <h1>拡張アクション: Grok Wars</h1>
-        <p>操作: 左半分をドラッグで移動、右半分をドラッグで回転・攻撃</p>
+        <p>操作: 左スライダーをドラッグで移動、右スライダーをドラッグで回転＆攻撃</p>
         <div class="slider-container">
             <label class="label">難易度:</label>
             <input type="range" id="difficulty" min="1" max="5" value="3" class="slider">
@@ -94,12 +94,12 @@
         </div>
         <div class="slider-container">
             <label class="label">敵速度倍率:</label>
-            <input type="range" id="enemySpeedMul" min="0.5" max="2" step="0.1" value="1" class="slider">
-            <span id="enemySpeedVal">1</span>
+            <input type="range" id="enemySpeedMul" min="0.5" max="2" step="0.1" value="0.7" class="slider">
+            <span id="enemySpeedVal">0.7</span>
         </div>
         <button id="startBtn" onclick="startGame()">スタート</button>
     </div>
-    <div id="guide" style="display: none;">左:移動 / 右:回転・攻撃</div>
+    <div id="guide" style="display: none;">左スライダー: ドラッグで移動 / 右スライダー: ドラッグで回転＆攻撃</div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -146,6 +146,18 @@
             oscillator.start();
             return oscillator;
         }
+        function playItemSound() {
+            const oscillator = audioCtx.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.setValueAtTime(params.bgmVol, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.2);
+        }
         let bgm;
 
         let player, enemies = [], items = [], score = 0, gameOver = false, cleared = false;
@@ -156,6 +168,7 @@
         class Entity {
             constructor(x, y, size, color, dur) {
                 this.x = x; this.y = y; this.size = size; this.color = color; this.dur = dur; this.maxDur = dur; this.scale = 1;
+                this.blink = 0; // 点滅用
             }
             updateScale() { this.scale = this.dur / this.maxDur; }
             draw() {
@@ -163,11 +176,16 @@
                 ctx.translate(this.x, this.y);
                 ctx.scale(this.scale, this.scale);
                 ctx.fillStyle = this.color;
+                if (this.isItem) {
+                    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(this.blink); // 点滅
+                    this.blink += 0.1;
+                }
                 ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
-                if (this.type === 0) { // 速い敵にエフェクト
+                if (this.type === 0 && !this.isItem) {
                     ctx.strokeStyle = 'yellow';
                     ctx.strokeRect(-this.size/2-2, -this.size/2-2, this.size+4, this.size+4);
                 }
+                ctx.globalAlpha = 1;
                 ctx.restore();
             }
         }
@@ -205,6 +223,13 @@
                     ctx.fillRect(extX, -ext.size/2, ext.size, ext.size);
                     extX += ext.size;
                 });
+                if (rotTouch.active) { // 攻撃エフェクト
+                    ctx.strokeStyle = 'red';
+                    ctx.beginPath();
+                    ctx.moveTo(this.size/2, 0);
+                    ctx.lineTo(this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0) + 20, 0);
+                    ctx.stroke();
+                }
                 ctx.restore();
             }
             attackEnemies() {
@@ -226,20 +251,21 @@
             connectItem(item) {
                 this.extensions.push(item);
                 this.attack += 1;
+                playItemSound();
+                if ('vibrate' in navigator) navigator.vibrate(100);
             }
         }
 
         class Enemy extends Entity {
             constructor(x, y, size, color, dur, speed, type, isBoss = false) {
                 super(x, y, size, color, dur * params.enemyDurMul);
-                this.speed = speed * params.enemySpeedMul; // 速度に倍率適用
+                this.speed = speed * params.enemySpeedMul;
                 this.type = type; this.isBoss = isBoss;
-                this.zigzag = Math.random() * Math.PI * 2; // ジグザグ用
+                this.zigzag = Math.random() * Math.PI * 2;
             }
             update() {
                 const dx = player.x - this.x, dy = player.y - this.y;
                 const dist = Math.hypot(dx, dy);
-                // ジグザグ移動（速い敵のみ）
                 let moveX = (dx / dist) * this.speed;
                 let moveY = (dy / dist) * this.speed;
                 if (this.type === 0) {
@@ -256,6 +282,20 @@
             }
         }
 
+        class Item extends Entity {
+            constructor(x, y) {
+                super(x, y, 20, ['red', 'green', 'yellow'][Math.floor(Math.random()*3)], params.itemDur);
+                this.isItem = true;
+            }
+            update() {
+                if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2 && 
+                    Math.abs(Math.atan2(this.y - player.y, this.x - player.x) - player.angle) < Math.PI/2) {
+                    player.connectItem(this);
+                    items.splice(items.indexOf(this), 1);
+                }
+            }
+        }
+
         function spawnEnemy() {
             const side = Math.random() * 4 | 0;
             let x, y;
@@ -264,11 +304,11 @@
             else if (side === 2) { x = -50; y = Math.random()*height; }
             else { x = width+50; y = Math.random()*height; }
             let type = Math.floor(Math.random()*3), size=30, dur=20, speed=1.5, color;
-            if (type === 0) { color='orange'; speed=2; dur=10; } // 速いザコ
-            else if (type === 1) { color='purple'; dur=30; speed=1; } // 耐久ザコ
-            else { color='pink'; dur=15; speed=1.5; } // 標準
+            if (type === 0) { color='orange'; speed=2; dur=10; }
+            else if (type === 1) { color='purple'; dur=30; speed=1; }
+            else { color='pink'; dur=15; speed=1.5; }
             enemies.push(new Enemy(x, y, size, color, dur, speed, type));
-            console.log(`Spawned enemy: type=${type}, speed=${speed * params.enemySpeedMul}`); // デバッグ
+            console.log(`Spawned enemy: type=${type}, speed=${speed * params.enemySpeedMul}`);
         }
 
         function spawnMidBoss() {
@@ -280,8 +320,18 @@
         }
 
         function spawnItem() {
-            const x = Math.random()*width, y = Math.random()*height;
+            let x, y;
+            if (Math.random() < 0.5) { // 50%でプレイヤー近く
+                x = player.x + (Math.random() - 0.5) * 200;
+                y = player.y + (Math.random() - 0.5) * 200;
+                x = Math.max(50, Math.min(width-50, x));
+                y = Math.max(50, Math.min(height-50, y));
+            } else {
+                x = Math.random() * width;
+                y = Math.random() * height;
+            }
             items.push(new Item(x, y));
+            console.log(`Spawned item at (${x}, ${y})`);
         }
 
         function drawController() {
@@ -289,6 +339,9 @@
             ctx.translate(width/4, height-150);
             ctx.fillStyle = 'rgba(255,255,255,0.3)';
             ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fillText('移動', -20, 60);
             if (moveTouch.active) {
                 const dx = moveTouch.x - width/4, dy = moveTouch.y - (height-150);
                 const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy));
@@ -301,13 +354,16 @@
             ctx.restore();
             ctx.save();
             ctx.translate(width*3/4, height-150);
-            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillStyle = 'rgba(255,0,0,0.3)'; // 攻撃スライダーを赤で強調
             ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fillText('回転＆攻撃', -30, 60);
             if (rotTouch.active) {
                 const rx = rotTouch.x - (width*3/4), ry = rotTouch.y - (height-150);
                 const dist = Math.min(50, Math.sqrt(rx*rx + ry*ry));
                 const angle = Math.atan2(ry, rx);
-                ctx.fillStyle = 'white';
+                ctx.fillStyle = 'red';
                 ctx.beginPath();
                 ctx.arc(Math.cos(angle)*dist, Math.sin(angle)*dist, 20, 0, Math.PI*2);
                 ctx.fill();
@@ -334,6 +390,7 @@
             document.getElementById('guide').style.display = 'block';
             player = new Player();
             bgm = playBGM(params.bgmVol);
+            spawnItem(); // ゲーム開始時に1個保証
             gameLoop();
         }
 
@@ -365,7 +422,7 @@
             drawController();
 
             if (wave === 0 && enemies.length < params.enemySpawn) spawnEnemy();
-            if (wave === 0 && enemies.length === 0 && Math.random() < 0.005 * params.difficulty) { // 出現頻度を下げる
+            if (wave === 0 && enemies.length === 0 && Math.random() < 0.005 * params.difficulty) {
                 wave = 1; spawnMidBoss();
             }
             if (wave === 1 && enemies.length === 0) {
@@ -373,7 +430,7 @@
             }
             if (wave === 2 && enemies.length === 0) cleared = true;
 
-            if (Math.random() < 0.01) spawnItem(); // アイテム湧き増加
+            if (Math.random() < 0.03) spawnItem(); // 出現率3倍
 
             ctx.fillStyle = 'white';
             ctx.font = '20px Arial';
