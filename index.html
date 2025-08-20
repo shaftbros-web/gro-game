@@ -44,12 +44,12 @@
         </div>
         <div class="slider-container">
             <label class="label">移動速度:</label>
-            <input type="range" id="playerSpeed" min="1" max="10" value="2" class="slider"> <!-- デフォルト2 -->
+            <input type="range" id="playerSpeed" min="1" max="10" value="2" class="slider">
             <span id="speedVal">2</span>
         </div>
         <div class="slider-container">
             <label class="label">初期ライフ:</label>
-            <input type="range" id="initialLife" min="3" max="10" value="10" class="slider"> <!-- デフォルト10 -->
+            <input type="range" id="initialLife" min="3" max="10" value="10" class="slider">
             <span id="lifeVal">10</span>
         </div>
         <div class="slider-container">
@@ -97,6 +97,11 @@
             <input type="range" id="bossDurMul" min="0.5" max="2" step="0.1" value="0.5" class="slider">
             <span id="bossDurVal">0.5</span>
         </div>
+        <div class="slider-container">
+            <label class="label">ノックバック強度:</label>
+            <input type="range" id="knockbackMul" min="0.5" max="3" step="0.1" value="1" class="slider">
+            <span id="knockbackVal">1</span>
+        </div>
         <button id="startBtn">スタート</button>
     </div>
     <div id="guide" style="display: none;">左スライダー: 移動＆方向変更 / 自動攻撃＆アイテム吸い寄せ</div>
@@ -128,9 +133,10 @@
             document.getElementById('joyVal').textContent = document.getElementById('joySens').value;
             document.getElementById('enemySpeedVal').textContent = document.getElementById('enemySpeedMul').value;
             document.getElementById('bossDurVal').textContent = document.getElementById('bossDurMul').value;
+            document.getElementById('knockbackVal').textContent = document.getElementById('knockbackMul').value;
         }
         updateSliderLabels();
-        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'attackPower', 'bgmVol', 'scoreMul', 'joySens', 'enemySpeedMul', 'bossDurMul'].forEach(id => {
+        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'attackPower', 'bgmVol', 'scoreMul', 'joySens', 'enemySpeedMul', 'bossDurMul', 'knockbackMul'].forEach(id => {
             document.getElementById(id).addEventListener('input', updateSliderLabels);
         });
 
@@ -257,11 +263,12 @@
                     if (dist < (e.size + this.size)/2) {
                         e.dur -= this.attack + this.extensions.length;
                         e.updateScale();
-                        const kbDist = e.isBoss ? 5 : 10;
+                        const kbDist = (e.isBoss ? 10 : 20) * params.knockbackMul; // 強化 & スライダー適用
                         const kbDx = (e.x - this.x) / dist * kbDist;
                         const kbDy = (e.y - this.y) / dist * kbDist;
                         e.x += kbDx;
                         e.y += kbDy;
+                        console.log('Knockback applied to enemy');
                         if (e.dur <= 0) {
                             enemies.splice(enemies.indexOf(e), 1);
                             score += 10 * params.scoreMul * (e.isBoss ? 10 : 1);
@@ -296,11 +303,30 @@
                 }
                 this.x += moveX;
                 this.y += moveY;
+                // 本体にぶつかった時のノックバック (衝突ダメージ時)
                 if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2) {
                     player.dur -= 5;
                     player.updateScale();
                     if (player.dur <= 0) gameOver = true;
+                    const kbDist = (this.isBoss ? 10 : 20) * params.knockbackMul; // 強化
+                    const kbDx = (this.x - player.x) / dist * kbDist;
+                    const kbDy = (this.y - player.y) / dist * kbDist;
+                    this.x += kbDx;
+                    this.y += kbDy;
+                    console.log('Enemy knocked back on player collision');
                 }
+                // アイテムにぶつかった時のノックバック
+                items.forEach(i => {
+                    const iDist = Math.hypot(this.x - i.x, this.y - i.y);
+                    if (iDist < (this.size + i.size)/2) {
+                        const kbDist = (this.isBoss ? 10 : 20) * params.knockbackMul; // 強化
+                        const kbDx = (this.x - i.x) / iDist * kbDist;
+                        const kbDy = (this.y - i.y) / iDist * kbDist;
+                        this.x += kbDx;
+                        this.y += kbDy;
+                        console.log('Enemy knocked back on item collision');
+                    }
+                });
             }
         }
 
@@ -396,7 +422,8 @@
                     scoreMul: +document.getElementById('scoreMul').value,
                     joySens: +document.getElementById('joySens').value,
                     enemySpeedMul: +document.getElementById('enemySpeedMul').value,
-                    bossDurMul: +document.getElementById('bossDurMul').value
+                    bossDurMul: +document.getElementById('bossDurMul').value,
+                    knockbackMul: +document.getElementById('knockbackMul').value
                 };
                 console.log('Parameters loaded:', params);
                 document.getElementById('title').style.display = 'none';
