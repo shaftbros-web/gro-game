@@ -92,6 +92,11 @@
             <input type="range" id="enemySpeedMul" min="0.5" max="2" step="0.1" value="0.5" class="slider">
             <span id="enemySpeedVal">0.5</span>
         </div>
+        <div class="slider-container">
+            <label class="label">ボス耐久倍率:</label>
+            <input type="range" id="bossDurMul" min="0.5" max="2" step="0.1" value="0.5" class="slider">
+            <span id="bossDurVal">0.5</span>
+        </div>
         <button id="startBtn" onclick="startGame()">スタート</button>
     </div>
     <div id="guide" style="display: none;">左スライダー: 移動＆方向変更 / 自動攻撃＆アイテム吸い寄せ</div>
@@ -122,9 +127,10 @@
             document.getElementById('scoreVal').textContent = document.getElementById('scoreMul').value;
             document.getElementById('joyVal').textContent = document.getElementById('joySens').value;
             document.getElementById('enemySpeedVal').textContent = document.getElementById('enemySpeedMul').value;
+            document.getElementById('bossDurVal').textContent = document.getElementById('bossDurMul').value;
         }
         updateSliderLabels();
-        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'attackPower', 'bgmVol', 'scoreMul', 'joySens', 'enemySpeedMul'].forEach(id => {
+        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'attackPower', 'bgmVol', 'scoreMul', 'joySens', 'enemySpeedMul', 'bossDurMul'].forEach(id => {
             document.getElementById(id).addEventListener('input', updateSliderLabels);
         });
 
@@ -162,8 +168,14 @@
             constructor(x, y, size, color, dur) {
                 this.x = x; this.y = y; this.size = size; this.color = color; this.dur = dur; this.maxDur = dur; this.scale = 1;
                 this.blink = 0;
+                this.baseColor = color; // 元の色
             }
-            updateScale() { this.scale = this.dur / this.maxDur; }
+            updateScale() {
+                this.scale = this.dur / this.maxDur;
+                // 耐久減で色を薄く
+                const alpha = this.scale.toString(16).padStart(2, '0');
+                this.color = this.baseColor + alpha; // RGBA形式 (例: 'blue' -> '#0000ff' だが簡易的に)
+            }
             draw() {
                 ctx.save();
                 ctx.translate(this.x, this.y);
@@ -195,7 +207,7 @@
                 if (moveTouch.active && dist > 20) {
                     this.x += (dx / dist) * this.speed * params.joySens;
                     this.y += (dy / dist) * this.speed * params.joySens;
-                    this.angle = Math.atan2(dy, dx); // 即時回転
+                    this.angle = Math.atan2(dy, dx);
                 }
                 this.x = Math.max(0, Math.min(width, this.x));
                 this.y = Math.max(0, Math.min(height, this.y));
@@ -227,6 +239,12 @@
                     if (dist < (e.size + this.size)/2) {
                         e.dur -= this.attack + this.extensions.length;
                         e.updateScale();
+                        // ノックバック
+                        const kbDist = e.isBoss ? 5 : 10;
+                        const kbDx = (e.x - this.x) / dist * kbDist;
+                        const kbDy = (e.y - this.y) / dist * kbDist;
+                        e.x += kbDx;
+                        e.y += kbDy;
                         if (e.dur <= 0) {
                             enemies.splice(enemies.indexOf(e), 1);
                             score += 10 * params.scoreMul * (e.isBoss ? 10 : 1);
@@ -245,7 +263,7 @@
 
         class Enemy extends Entity {
             constructor(x, y, size, color, dur, speed, type, isBoss = false) {
-                super(x, y, size, color, dur * params.enemyDurMul);
+                super(x, y, size, color, dur);
                 this.speed = speed * params.enemySpeedMul;
                 this.type = type; this.isBoss = isBoss;
                 this.zigzag = Math.random() * Math.PI * 2;
@@ -279,12 +297,12 @@
                 const dx = player.x - this.x, dy = player.y - this.y;
                 const dist = Math.hypot(dx, dy);
                 let speed = this.baseSpeed;
-                if (dist < 100) speed = 5; // 100px以内で吸い寄せ
+                if (dist < 100) speed = 5;
                 if (dist > 1) {
                     this.x += (dx / dist) * speed;
                     this.y += (dy / dist) * speed;
                 }
-                if (dist < 50) { // 全方位で取得
+                if (dist < 50) {
                     player.connectItem(this);
                     items.splice(items.indexOf(this), 1);
                     console.log(`Item collected at (${this.x}, ${this.y})`);
@@ -303,16 +321,16 @@
             if (type === 0) { color='orange'; speed=2; dur=10; }
             else if (type === 1) { color='purple'; dur=30; speed=1; }
             else { color='pink'; dur=15; speed=1.5; }
-            enemies.push(new Enemy(x, y, size, color, dur, speed, type));
+            enemies.push(new Enemy(x, y, size, color, dur * params.enemyDurMul, speed, type));
             console.log(`Spawned enemy: type=${type}, speed=${speed * params.enemySpeedMul}`);
         }
 
         function spawnMidBoss() {
-            enemies.push(new Enemy(width/2, -100, 50, 'darkred', 50, 1.2, 0, true));
+            enemies.push(new Enemy(width/2, -100, 50, 'darkred', 50 * params.bossDurMul, 1.2, 0, true));
         }
 
         function spawnBoss() {
-            enemies.push(new Enemy(width/2, -200, 80, 'black', 100, 0.8, 0, true));
+            enemies.push(new Enemy(width/2, -200, 80, 'black', 100 * params.bossDurMul, 0.8, 0, true));
         }
 
         function spawnItem() {
@@ -358,7 +376,8 @@
                 bgmVol: +document.getElementById('bgmVol').value,
                 scoreMul: +document.getElementById('scoreMul').value,
                 joySens: +document.getElementById('joySens').value,
-                enemySpeedMul: +document.getElementById('enemySpeedMul').value
+                enemySpeedMul: +document.getElementById('enemySpeedMul').value,
+                bossDurMul: +document.getElementById('bossDurMul').value
             };
             document.getElementById('title').style.display = 'none';
             document.getElementById('guide').style.display = 'block';
@@ -404,7 +423,7 @@
             }
             if (wave === 2 && enemies.length === 0) cleared = true;
 
-            if (Math.random() < 0.015) spawnItem(); // アイテム出現率調整
+            if (Math.random() < 0.015) spawnItem();
 
             ctx.fillStyle = 'white';
             ctx.font = '20px Arial';
