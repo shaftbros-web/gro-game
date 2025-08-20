@@ -36,7 +36,7 @@
     <canvas id="gameCanvas"></canvas>
     <div id="title">
         <h1>拡張アクション: Grok Wars</h1>
-        <p>操作: 左スライダーをドラッグで移動＆回転、自動で攻撃＆アイテム取得</p>
+        <p>操作: 左スライダーをドラッグで移動＆方向変更、自動で攻撃＆アイテム吸い寄せ</p>
         <div class="slider-container">
             <label class="label">難易度:</label>
             <input type="range" id="difficulty" min="1" max="5" value="3" class="slider">
@@ -68,11 +68,6 @@
             <span id="enemyDurVal">1</span>
         </div>
         <div class="slider-container">
-            <label class="label">回転速度:</label>
-            <input type="range" id="rotSpeed" min="1" max="10" value="5" class="slider">
-            <span id="rotVal">5</span>
-        </div>
-        <div class="slider-container">
             <label class="label">攻撃力:</label>
             <input type="range" id="attackPower" min="1" max="5" value="2" class="slider">
             <span id="atkVal">2</span>
@@ -94,12 +89,12 @@
         </div>
         <div class="slider-container">
             <label class="label">敵速度倍率:</label>
-            <input type="range" id="enemySpeedMul" min="0.5" max="2" step="0.1" value="0.6" class="slider">
-            <span id="enemySpeedVal">0.6</span>
+            <input type="range" id="enemySpeedMul" min="0.5" max="2" step="0.1" value="0.5" class="slider">
+            <span id="enemySpeedVal">0.5</span>
         </div>
         <button id="startBtn" onclick="startGame()">スタート</button>
     </div>
-    <div id="guide" style="display: none;">左スライダー: ドラッグで移動＆回転 / 自動攻撃＆アイテム取得</div>
+    <div id="guide" style="display: none;">左スライダー: 移動＆方向変更 / 自動攻撃＆アイテム吸い寄せ</div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -122,7 +117,6 @@
             document.getElementById('spawnVal').textContent = document.getElementById('enemySpawn').value;
             document.getElementById('itemDurVal').textContent = document.getElementById('itemDur').value;
             document.getElementById('enemyDurVal').textContent = document.getElementById('enemyDurMul').value;
-            document.getElementById('rotVal').textContent = document.getElementById('rotSpeed').value;
             document.getElementById('atkVal').textContent = document.getElementById('attackPower').value;
             document.getElementById('volVal').textContent = document.getElementById('bgmVol').value;
             document.getElementById('scoreVal').textContent = document.getElementById('scoreMul').value;
@@ -130,7 +124,7 @@
             document.getElementById('enemySpeedVal').textContent = document.getElementById('enemySpeedMul').value;
         }
         updateSliderLabels();
-        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'rotSpeed', 'attackPower', 'bgmVol', 'scoreMul', 'joySens', 'enemySpeedMul'].forEach(id => {
+        ['difficulty', 'playerSpeed', 'initialLife', 'enemySpawn', 'itemDur', 'enemyDurMul', 'attackPower', 'bgmVol', 'scoreMul', 'joySens', 'enemySpeedMul'].forEach(id => {
             document.getElementById(id).addEventListener('input', updateSliderLabels);
         });
 
@@ -192,7 +186,7 @@
         class Player extends Entity {
             constructor() {
                 super(width/2, height/2, 30, 'blue', params.initialLife * 10);
-                this.angle = 0; this.speed = params.playerSpeed; this.rotSpeed = params.rotSpeed * Math.PI / 180;
+                this.angle = 0; this.speed = params.playerSpeed;
                 this.extensions = []; this.attack = params.attackPower;
             }
             update() {
@@ -201,7 +195,7 @@
                 if (moveTouch.active && dist > 20) {
                     this.x += (dx / dist) * this.speed * params.joySens;
                     this.y += (dy / dist) * this.speed * params.joySens;
-                    this.angle += (Math.atan2(dy, dx) - this.angle) * 0.1 * this.rotSpeed; // 移動方向に回転
+                    this.angle = Math.atan2(dy, dx); // 即時回転
                 }
                 this.x = Math.max(0, Math.min(width, this.x));
                 this.y = Math.max(0, Math.min(height, this.y));
@@ -218,7 +212,7 @@
                     ctx.fillRect(extX, -ext.size/2, ext.size, ext.size);
                     extX += ext.size;
                 });
-                ctx.strokeStyle = 'red'; // 攻撃範囲
+                ctx.strokeStyle = 'red';
                 ctx.beginPath();
                 ctx.moveTo(this.size/2, 0);
                 ctx.lineTo(this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0) + 20, 0);
@@ -230,7 +224,7 @@
                 const frontY = this.y + Math.sin(this.angle) * (this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0));
                 enemies.forEach(e => {
                     const dist = Math.hypot(e.x - frontX, e.y - frontY);
-                    if (dist < (e.size + this.size)/2) { // 常時攻撃
+                    if (dist < (e.size + this.size)/2) {
                         e.dur -= this.attack + this.extensions.length;
                         e.updateScale();
                         if (e.dur <= 0) {
@@ -279,19 +273,21 @@
             constructor(x, y) {
                 super(x, y, 20, ['red', 'green', 'yellow'][Math.floor(Math.random()*3)], params.itemDur);
                 this.isItem = true;
-                this.speed = 1.5; // アイテムの移動速度
+                this.baseSpeed = 1.5;
             }
             update() {
                 const dx = player.x - this.x, dy = player.y - this.y;
                 const dist = Math.hypot(dx, dy);
+                let speed = this.baseSpeed;
+                if (dist < 100) speed = 5; // 100px以内で吸い寄せ
                 if (dist > 1) {
-                    this.x += (dx / dist) * this.speed;
-                    this.y += (dy / dist) * this.speed;
+                    this.x += (dx / dist) * speed;
+                    this.y += (dy / dist) * speed;
                 }
-                if (Math.hypot(this.x - player.x, this.y - player.y) < (this.size + player.size)/2 && 
-                    Math.abs(Math.atan2(this.y - player.y, this.x - player.x) - player.angle) < Math.PI/2) {
+                if (dist < 50) { // 全方位で取得
                     player.connectItem(this);
                     items.splice(items.indexOf(this), 1);
+                    console.log(`Item collected at (${this.x}, ${this.y})`);
                 }
             }
         }
@@ -337,7 +333,7 @@
             ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI*2); ctx.fill();
             ctx.fillStyle = 'white';
             ctx.font = '12px Arial';
-            ctx.fillText('移動＆回転', -30, 60);
+            ctx.fillText('移動＆方向', -30, 60);
             if (moveTouch.active) {
                 const dx = moveTouch.x - width/4, dy = moveTouch.y - (height-150);
                 const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy));
@@ -358,7 +354,6 @@
                 enemySpawn: +document.getElementById('enemySpawn').value,
                 itemDur: +document.getElementById('itemDur').value,
                 enemyDurMul: +document.getElementById('enemyDurMul').value,
-                rotSpeed: +document.getElementById('rotSpeed').value,
                 attackPower: +document.getElementById('attackPower').value,
                 bgmVol: +document.getElementById('bgmVol').value,
                 scoreMul: +document.getElementById('scoreMul').value,
@@ -409,7 +404,7 @@
             }
             if (wave === 2 && enemies.length === 0) cleared = true;
 
-            if (Math.random() < 0.02) spawnItem(); // アイテム出現率調整
+            if (Math.random() < 0.015) spawnItem(); // アイテム出現率調整
 
             ctx.fillStyle = 'white';
             ctx.font = '20px Arial';
