@@ -5,31 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>拡張アクション: Grok Wars</title>
     <style>
-        body { margin: 0; background: black; font-family: Arial, sans-serif; }
+        body { margin: 0; background: #1a1a2e; font-family: 'Arial', sans-serif; overflow: hidden; }
         canvas { display: block; }
         #title {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); color: white; text-align: center;
-            overflow-y: auto; padding: 10px; box-sizing: border-box;
+            background: rgba(0, 0, 0, 0.85); color: #e5e5e5; text-align: center;
+            overflow-y: auto; padding: 20px; box-sizing: border-box;
             display: flex; flex-direction: column; align-items: center; z-index: 10;
+            border-radius: 15px; box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
         }
-        #title h1 { font-size: 24px; margin: 10px 0; }
-        #title p { font-size: 16px; margin: 5px 0; }
-        .slider-container { width: 90%; margin: 8px 0; }
-        .slider { width: 70%; vertical-align: middle; }
-        .label { font-size: 14px; display: inline-block; width: 120px; text-align: left; }
+        #title h1 { font-size: 28px; color: #00d4ff; text-shadow: 0 0 10px #00d4ff; margin: 15px 0; }
+        #title p { font-size: 18px; color: #b3e5fc; margin: 10px 0; }
+        .slider-container { width: 90%; margin: 12px 0; }
+        .slider { width: 70%; vertical-align: middle; accent-color: #00d4ff; }
+        .label { font-size: 16px; color: #b3e5fc; display: inline-block; width: 140px; text-align: left; }
         #startBtn {
-            position: sticky; bottom: 10px; padding: 15px 30px; font-size: 18px;
-            background: #00f; border: none; color: white; border-radius: 5px; cursor: pointer;
+            position: sticky; bottom: 20px; padding: 18px 40px; font-size: 20px;
+            background: linear-gradient(45deg, #00d4ff, #007bff); border: none; color: white;
+            border-radius: 10px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
         }
-        #startBtn:hover { background: #005; }
+        #startBtn:hover {
+            transform: scale(1.05); box-shadow: 0 0 15px #00d4ff;
+        }
         #guide {
-            position: absolute; top: 10px; left: 10px; color: white; font-size: 14px;
-            background: rgba(0,0,0,0.5); padding: 8px; border-radius: 5px;
+            position: absolute; top: 15px; left: 15px; color: #e5e5e5; font-size: 16px;
+            background: rgba(0, 0, 0, 0.7); padding: 10px; border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
         }
-        #title::-webkit-scrollbar { width: 10px; }
-        #title::-webkit-scrollbar-thumb { background: #666; border-radius: 5px; }
-        #title::-webkit-scrollbar-track { background: #333; }
+        #title::-webkit-scrollbar { width: 12px; }
+        #title::-webkit-scrollbar-thumb { background: #00d4ff; border-radius: 6px; }
+        #title::-webkit-scrollbar-track { background: #2a2a3e; }
     </style>
 </head>
 <body>
@@ -204,16 +209,28 @@
                 ctx.save();
                 ctx.translate(this.x, this.y);
                 ctx.scale(this.scale, this.scale);
-                ctx.fillStyle = this.color;
+                let gradient;
                 if (this.isItem) {
-                    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(this.blink);
+                    gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size/2);
+                    gradient.addColorStop(0, this.color.replace(/ff$/, 'ff'));
+                    gradient.addColorStop(1, this.color.replace(/ff$/, '33'));
+                    ctx.globalAlpha = 0.8 + 0.2 * Math.sin(this.blink);
                     this.blink += 0.1;
+                } else {
+                    gradient = ctx.createLinearGradient(-this.size/2, -this.size/2, this.size/2, this.size/2);
+                    gradient.addColorStop(0, this.color.replace(/ff$/, 'cc'));
+                    gradient.addColorStop(1, this.color.replace(/ff$/, '66'));
                 }
+                ctx.fillStyle = gradient;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color.replace(/ff$/, '33');
                 ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
                 if (this.type === 0 && !this.isItem) {
-                    ctx.strokeStyle = 'yellow';
+                    ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)';
+                    ctx.lineWidth = 2;
                     ctx.strokeRect(-this.size/2-2, -this.size/2-2, this.size+4, this.size+4);
                 }
+                ctx.shadowBlur = 0;
                 ctx.globalAlpha = 1;
                 ctx.restore();
             }
@@ -240,23 +257,37 @@
                 ctx.save();
                 ctx.translate(this.x, this.y);
                 ctx.rotate(this.angle);
-                ctx.fillStyle = this.color;
+                let gradient = ctx.createLinearGradient(-this.size/2, -this.size/2, this.size/2, this.size/2);
+                gradient.addColorStop(0, this.color.replace(/ff$/, 'cc'));
+                gradient.addColorStop(1, this.color.replace(/ff$/, '44'));
+                ctx.fillStyle = gradient;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color.replace(/ff$/, '66');
                 ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
                 let extX = this.size/2;
                 this.extensions.forEach(ext => {
-                    ctx.fillStyle = ext.color;
-                    ctx.fillRect(extX, -ext.size/2, ext.size, ext.size);
+                    ctx.save();
+                    ctx.translate(extX, 0);
+                    let extGradient = ctx.createLinearGradient(-ext.size/2, -ext.size/2, ext.size/2, ext.size/2);
+                    extGradient.addColorStop(0, ext.color.replace(/ff$/, 'cc'));
+                    extGradient.addColorStop(1, ext.color.replace(/ff$/, '44'));
+                    ctx.fillStyle = extGradient;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = ext.color.replace(/ff$/, '33');
+                    ctx.fillRect(-ext.size/2, -ext.size/2, ext.size, ext.size);
+                    ctx.restore();
                     extX += ext.size;
                 });
-                ctx.strokeStyle = 'red';
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.moveTo(this.size/2, 0);
                 ctx.lineTo(this.size/2 + this.extensions.reduce((a, e) => a + e.size, 0) + 20, 0);
                 ctx.stroke();
+                ctx.shadowBlur = 0;
                 ctx.restore();
             }
             attackEnemies() {
-                // プレイヤー本体の攻撃判定
                 const baseX = this.x + Math.cos(this.angle) * (this.size/2);
                 const baseY = this.y + Math.sin(this.angle) * (this.size/2);
                 enemies.forEach(e => {
@@ -278,7 +309,6 @@
                     }
                 });
 
-                // 拡張部全体の攻撃判定
                 let extX = this.size/2;
                 this.extensions.forEach(ext => {
                     const extCenterX = this.x + Math.cos(this.angle) * extX + Math.cos(this.angle + Math.PI/2) * (ext.size/2);
@@ -286,7 +316,7 @@
                     enemies.forEach(e => {
                         const dist = Math.hypot(e.x - extCenterX, e.y - extCenterY);
                         if (dist < (e.size + ext.size)/2) {
-                            const damage = this.attack / (this.extensions.length + 1); // 攻撃力を拡張部数で均等分配
+                            const damage = this.attack / (this.extensions.length + 1);
                             e.dur -= damage;
                             e.updateScale();
                             const kbDist = (e.isBoss ? 10 : 20) * params.knockbackMul;
@@ -307,7 +337,7 @@
             }
             connectItem(item) {
                 this.extensions.push(item);
-                this.attack += 1; // 拡張ごとに攻撃力増加
+                this.attack += 1;
                 playItemSound();
                 if ('vibrate' in navigator) navigator.vibrate(100);
             }
@@ -416,16 +446,19 @@
         function drawController() {
             ctx.save();
             ctx.translate(width/4, height-150);
-            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            let gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 50);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+            gradient.addColorStop(1, 'rgba(0, 212, 255, 0.1)');
+            ctx.fillStyle = gradient;
             ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = 'white';
-            ctx.font = '12px Arial';
-            ctx.fillText('移動＆方向', -30, 60);
+            ctx.fillStyle = '#e5e5e5';
+            ctx.font = '14px Arial';
+            ctx.fillText('移動＆方向', -35, 70);
             if (moveTouch.active) {
                 const dx = moveTouch.x - width/4, dy = moveTouch.y - (height-150);
                 const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy));
                 const angle = Math.atan2(dy, dx);
-                ctx.fillStyle = 'white';
+                ctx.fillStyle = '#00d4ff';
                 ctx.beginPath();
                 ctx.arc(Math.cos(angle)*dist, Math.sin(angle)*dist, 20, 0, Math.PI*2);
                 ctx.fill();
@@ -480,8 +513,11 @@
             lastTime = time;
 
             ctx.clearRect(0, 0, width, height);
-            ctx.fillStyle = 'rgba(0,0,50,0.5)';
-            ctx.fillRect(0,0,width,height);
+            let bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+            bgGradient.addColorStop(0, '#1a1a2e');
+            bgGradient.addColorStop(1, '#16213e');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, width, height);
 
             player.update();
             player.draw();
@@ -503,10 +539,13 @@
 
             if (Math.random() < 0.015) spawnItem();
 
-            ctx.fillStyle = 'white';
-            ctx.font = '20px Arial';
-            ctx.fillText(`Life: ${Math.ceil(player.dur/10)}`, 10, 30);
-            ctx.fillText(`Score: ${score}`, 10, 60);
+            ctx.fillStyle = '#e5e5e5';
+            ctx.font = '22px Arial';
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#00d4ff';
+            ctx.fillText(`Life: ${Math.ceil(player.dur/10)}`, 15, 40);
+            ctx.fillText(`Score: ${score}`, 15, 70);
+            ctx.shadowBlur = 0;
         }
 
         document.getElementById('startBtn').addEventListener('click', () => {
